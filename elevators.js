@@ -1,7 +1,6 @@
-// for single elevator
+// for multiple elevators
 {
   init: function(elevators, floors) {
-    let elevator = elevators[0]
     var uniqArray = function(arr) {
       if (!Array.isArray(arr)) {
         throw new Error('param must be array')
@@ -31,6 +30,15 @@
         return true
       }
       return false
+    }
+
+    // 是否已经到顶层
+    var isAtHighest = function(elev) {
+      elev.currentFloor() === floors.length - 1
+    }
+    // 是否已到最底层
+    var isAtLowest = function(elev) {
+      elev.currentFloor() === 0
     }
 
     var isStooped = function(elev) {
@@ -79,31 +87,71 @@
 
     }
 
-    let processFloor = function(floor) {
-      var floorNum = floors.indexOf(floor)
-      elevator.goToFloor(floorNum)
-      resortDestinationQueue(elevator)
+
+    let self = this
+
+    // 平均分配工作给每个电梯
+    // 当前分配工作的电梯的索引
+    let workingIndex = 0
+    let dispatchJob = (floorNum) => {
+
+      if (workingIndex > elevators.length - 1) {
+        workingIndex = 0
+      }
+      let elevator = elevators[workingIndex]
+      workingIndex++
+      if (elevator.loadFactor() < 1) {
+        elevator.goToFloor(floorNum)
+        resortDestinationQueue(elevator)
+      } else {
+        dispatchJob(floorNum)
+      }
+    }
+
+    let processFloor = function(event) {
+      let func = function(floor) {
+        // 如果全满了
+        if(elevators.every(function(elev) {
+          return elev.loadFactor() >= 1
+        })) {
+          self.floorQueue.push({event, floor: floor})
+        }
+
+        let floorNum = floors.indexOf(floor)
+        dispatchJob(floorNum)
+      }
+      return func
     }
 
     floors.map(function(floor) {
-      floor.on('up_button_pressed', processFloor)
-      floor.on('down_button_pressed', processFloor)
-    })
-    elevator.on("floor_button_pressed", function(floorNum) {
-      elevator.goToFloor(floorNum)
-
-      resortDestinationQueue(elevator)
-      console.log('floor_button_pressed ', floorNum)
-      console.log(elevator.destinationQueue)
+      floor.on('up_button_pressed', processFloor('up_button_pressed'))
+      floor.on('down_button_pressed', processFloor('down_button_pressed'))
     })
 
-    elevator.on("idle", function() {
-      console.log('idel')
-      elevator.goToFloor(0)
-    })
+    for (let elevator of elevators) {
+      elevator.on("floor_button_pressed", function(floorNum) {
+        elevator.goToFloor(floorNum)
+
+        resortDestinationQueue(elevator)
+        console.log('floor_button_pressed ', floorNum)
+        console.log(elevator.destinationQueue)
+      })
+
+      elevator.on("idle", function() {
+        console.log('idel')
+        console.log(elevator.destinationQueue)
+      })
+    }
 
   },
+
+  floorQueue: [],
+
   update: function(dt, elevators, floors) {
-      // We normally don't need to do anything here
+    if (this.floorQueue.length) {
+      this.floorQueue.forEach(queue => {
+        queue.floor.trigger(queue.event)
+      })
+    }
   },
 }
