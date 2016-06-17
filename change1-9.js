@@ -1,4 +1,5 @@
 // for multiple elevators
+// before challenge 10, each elevator are save load quality
 {
   init: function(elevators, floors) {
     var uniqArray = function(arr) {
@@ -90,27 +91,19 @@
 
     let self = this
 
-    // 平均分配工作给每个电梯
-    // 当前分配工作的电梯的索引
-    let workingIndex = 0
+    // 平均分的策略在负载大的情况下不够用，改为分配工作给负载更小的策略
     let dispatchJob = (floorNum) => {
-
-      if (workingIndex > elevators.length - 1) {
-        workingIndex = 0
-      }
-      let elevator = elevators[workingIndex]
-      workingIndex++
-      if (elevator.loadFactor() < 1) {
-        elevator.goToFloor(floorNum)
-        resortDestinationQueue(elevator)
-      } else {
-        dispatchJob(floorNum)
-      }
+      let sortedByLoad = elevators.sort((e1, e2) => {
+        return e1.loadFactor() > e2.loadFactor()
+      })
+      elevator = elevators[0]
+      elevator.goToFloor(floorNum)
+      resortDestinationQueue(elevator)
     }
 
     let processFloor = function(event) {
       let func = function(floor) {
-        // 如果全满了
+        // 如果全满了则将该时间加入队列在update里触发
         if(elevators.every(function(elev) {
           return elev.loadFactor() >= 1
         })) {
