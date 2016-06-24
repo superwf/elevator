@@ -1,3 +1,4 @@
+// 在中间楼层停的时候，如果没有当前任务，则向下优先
 ;(function(){
 
   // 正向排序
@@ -23,112 +24,124 @@
     return n <= a && n >= b
   }
 
-
-  /* 处理楼层生成的任务
-   * @param Array elevators
-   * @param Object task
-   * @return Bool, true: task dispatched; false task not dispatched, still in out queue
-   * */
-  let floorQueue = []
-  window.floorQueue = floorQueue
-  function dispatchOutTask(elevators, task) {
-    let enabled = elevators.filter(e => e.loadFactor() <= 1)
-    if (!enabled.length) {
-      floorQueue.push(task)
-      floorQueue = _.uniq(floorQueue)
-      console.log('elevators all full')
-      return false
-    }
-    enabled = _.sortBy(enabled, e => e.loadFactor())
-
-    // TODO 选择离的近的
-    // 目前先选负载少的
-    let worker = enabled[0]
-
-    let floorNum = task.floorNum
-    let queue = worker.destinationQueue
-    // console.log(queue)
-    if (!queue.length) {
-      console.log('空队列插入', task)
-      worker.goToFloor(floorNum)
-      worker.sortDestinationQueue()
-      return true
-    }
-    // 在目标范围内
-    let currentFloor = worker.currentFloor()
-    if (inRange(floorNum, currentFloor, _.last(queue))) {
-      if ((worker.isUp() && task.direction === 'Up') ||
-          (worker.isDown() && task.direction === 'Down')) {
-        console.log('顺路插入', task)
-        worker.goToFloor(floorNum)
-        worker.sortDestinationQueue()
-        return true
-      }
-    }
-
-    floorQueue.push(task)
-    floorQueue = _.uniq(floorQueue)
-    console.log('排入floor队列', floorQueue)
-    return false
+  // 初始楼层队列
+  function addFloorTask(task) {
+    floorTasks.push(task)
   }
+  // 已分配队列，当停在楼层时删除该队列对应的楼层任务
+  // 为提示灯用
+  let dispatchedQueue = []
 
-  function runFloorQueue(elevators) {
-    if (floorQueue.length) {
-      dispatchOutTask(elevators, floorQueue[0])
-    }
-  }
 
   /* extend elevator prototype
    * @param Object proto
    * */
   function extendElevator(proto) {
     Object.assign(proto, {
+      // 获取最近的楼层任务
+      nearestTask() {
+        let tasks = _.filter(floorTasks, t => !t.dispatched)
+        tasks = _.sortBy(tasks, f => {
+          return Math.abs(this.currentFloor() - f.floorNum)
+        })
+        return tasks[0]
+      },
+      
+      /* 分配合适的下一个任务
+       * 直接去最远的任务，中间的任务交给passing_floor解决
+       * 当上下都有任务时，如果都是向上则先去下面的，都是向下则先去上面的，有上有下时，先去这两个里面较近的一个
+       */
+      nextTask() {
+        let tasks = _.filter(floorTasks, t => !t.dispatched)
+        let currentFloor = this.currentFloor()
+        let higher = _.filter(tasks, t => {
+          return t.floorNum > currentFloor
+        })
+        let lower = _.filter(tasks, t => {
+          return t.floorNum < currentFloor
+        })
+        higher = _.sortBy(higher, t => {
+          return t.floorNum
+        })
+        lower = _.sortBy(lower, t => {
+          return t.floorNum
+        })
+
+        let highest = higher[higher.length - 1]
+        let lowest = lower[0]
+
+        if (highest && !lowest) {
+          return highest
+        }
+        if (lowest && !highest) {
+          return lowest
+        }
+        if (lowest && highest) {
+          let downDistance = currentFloor - lowest.floorNum
+          let upDistance = lowest.floorNum - currentFloor 
+          if (lowest.up && !highest.up) {
+            return downDistance > upDistance ? highest : lowest
+          }
+          if (lowest.up && highest.up) {
+            return lowest
+          }
+          if (!lowest.up && highest.up) {
+            return downDistance < upDistance ? highest : lowest
+          }
+          if (!lowest.up && !highest.up) {
+            return highest
+          }
+        }
+
+      },
+
       isUp() {
-        return this.destinationDirection() === 'up' || (
-          this.destinationQueue[0] > this.currentFloor()
-        )
+        return  this.isAtBottom() || this.destinationDirection() === 'up' || this.destinationQueue[0] > this.currentFloor()
       },
       isDown() {
-        return this.destinationDirection() === 'down' || (
-          this.destinationQueue[0] < this.currentFloor()
-        )
+        return this.isAtTop() || this.destinationDirection() === 'down' || this.destinationQueue[0] < this.currentFloor()
+      },
+
+      isAtBottom() {
+        return this.currentFloor() === 0
+      },
+      isAtTop() {
+        return this.currentFloor() === this.floors.length - 1
       },
 
       isStopped() {
         return this.destinationDirection() === 'stopped'
       },
-      isFull() {
-        return this.loadFactor() >= 1
+      isAvailable() {
+        return this.loadFactor() < 1
+      },
+      isIdle() {
+        // console.log(JSON.stringify(this.destinationQueue))
+        return this.destinationQueue.length === 0
       },
 
-      // 关闭所有指示灯
-      turnOffIndicator() {
-        this.goingUpIndicator(false)
+      indicateUp() {
+        this.goingUpIndicator(true)
         this.goingDownIndicator(false)
       },
-      turnOnIndicator() {
-        this.goingUpIndicator(true)
+      indicateDown() {
+        this.goingUpIndicator(false)
         this.goingDownIndicator(true)
       },
 
       // 显示正确的指示灯
-      indicate() {
+      autoIndicate() {
         if (this.isUp()) {
-          this.goingUpIndicator(true)
-          this.goingDownIndicator(false)
-        } else if (this.isDown()) {
-          this.goingUpIndicator(false)
-          this.goingDownIndicator(true)
+          this.indicateUp()
+          return
         }
-        // } else if (this.isStopped() && !this.destinationQueue.length) {
-          // this.turnOffIndicator()
-        // }
-        if (this.currentFloor() === 0) {
-          this.goingUpIndicator(true)
-          this.goingDownIndicator(false)
+        if (this.isDown()) {
+          this.indicateDown()
+          return
         }
-        if (this.currentFloor() === this.floors.length) {
-          this.goingUpIndicator(false)
+        if (!this.destinationQueue.length) {
+          // console.log('light all')
+          this.goingUpIndicator(true)
           this.goingDownIndicator(true)
         }
       },
@@ -136,20 +149,20 @@
       /* 新楼层加入后为目标楼层排序
        * @param Number floorNum 新加入队列的楼层
       */
-      sortDestinationQueue() {
-        let queue = this.destinationQueue
-        let higher = queue.filter(f => f >= this.currentFloor())
-        let lower = queue.filter(f => f < this.currentFloor())
-        if (this.isUp()) {
-          this.destinationQueue = higher.sort(ascSort).concat(lower.sort(descSort))
-        }
-        if (this.isDown()) {
-          this.destinationQueue = lower.sort(descSort).concat(lower.sort(ascSort))
-        }
-        this.destinationQueue = _.uniq(this.destinationQueue)
-        this.checkDestinationQueue()
-        this.indicate()
-      },
+      // sortDestinationQueue() {
+      //   let queue = this.destinationQueue
+      //   let higher = queue.filter(f => f > this.currentFloor())
+      //   let lower = queue.filter(f => f < this.currentFloor())
+      //   if (this.isUp()) {
+      //     this.destinationQueue = higher.sort(ascSort).concat(lower.sort(descSort))
+      //   }
+      //   if (this.isDown()) {
+      //     this.destinationQueue = lower.sort(descSort).concat(higher.sort(ascSort))
+      //   }
+      //   this.destinationQueue = _.uniq(this.destinationQueue)
+      //   this.checkDestinationQueue()
+      //   this.autoIndicate()
+      // },
     })
   }
 
@@ -161,66 +174,132 @@
       extendElevator(elevatorProto)
 
       elevators.forEach(e => {
-        // 将要执行的任务队列
-        // 外部生成的任务队列
-        e.outQueue = []
-
-        // 正在执行的队列
-        // 里面添加的队列，里面优先执行
-        e.inQueue = []
+        e.indicateUp()
 
         e.on('floor_button_pressed', floorNum => {
-          let currentFloor = e.currentFloor()
           let queue = e.destinationQueue
-          if (!_.includes(queue, floorNum)) {
-            if (inRange(floorNum, currentFloor, _.last(queue))) {
-              let index = _.sortedIndex(e.destinationQueue, floorNum)
-              queue.splice(index, 0, floorNum)
-              e.checkDestinationQueue()
-            } else {
-              e.goToFloor(floorNum)
-            }
-            e.sortDestinationQueue()
+          if (!queue.length) {
+            e.goToFloor(floorNum)
+            e.autoIndicate()
+            return
           }
-          runFloorQueue(elevators)
+          if (queue.includes(floorNum)) {
+            return
+          }
+          if (e.isUp() && queue.length && inRange(floorNum, e.currentFloor(), Math.max(...e.destinationQueue))) {
+            queue.splice(_.sortedIndex(queue, floorNum), 0, floorNum)
+            e.checkDestinationQueue()
+            return
+          }
+          if (e.isDown() && queue.length && inRange(floorNum, Math.min(...e.destinationQueue), e.currentFloor())) {
+            queue.splice(_.sortedLastIndex(queue, floorNum), 0, floorNum)
+            e.checkDestinationQueue()
+            return
+          }
+          e.goToFloor(floorNum)
+          e.autoIndicate()
         })
 
         e.on('idle', () => {
-          console.log('idel')
-          runFloorQueue(elevators)
+          e.autoIndicate()
+          // console.log('when idle floorTasks is', floorTasks)
+          dispatchFloorTask(elevators)
         })
 
         e.on('stopped_at_floor', floorNum => {
-          e.turnOnIndicator()
-          let dest
-          if (e.isUp()) {
-            dest = {floorNum, direction: 'Up'}
-          } else if (e.isDown()) {
-            dest = {floorNum, direction: 'Down'}
+          e.autoIndicate()
+          // console.log(e.isIdle())
+          if (e.isIdle()) {
+            _.remove(floorTasks, {
+              floorNum
+            })
+          } else {
+            _.remove(floorTasks, {
+              dispatched: true,
+              floorNum
+            })
           }
-          if (_.find(floorQueue, dest)) {
-            _.remove(floorQueue, dest)
+        })
+
+        e.on('passing_floor', (floorNum, direction) => {
+          if (!e.isAvailable()) {
+            return
           }
-          console.log(floorQueue)
-          console.log(e.destinationQueue)
-          runFloorQueue(elevators)
+          let task = _.find(floorTasks, f => {
+            return f.floorNum === floorNum && direction === f.direction && !f.dispatched
+          })
+          if (task) {
+            task.dispatched = true
+            e.goToFloor(floorNum, true)
+          }
         })
 
         e.floors = floors
       })
 
+      /* 处理楼层生成的任务
+       * @param Array elevators
+       * @param Object task
+       * @return Bool, true: task dispatched; false task not dispatched, still in out queue
+       * */
+      window.floorTasks = []
+      function dispatchFloorTask(elevators) {
+        let enabled = elevators.filter(e => e.loadFactor() <= 1)
+        if (!enabled.length) {
+          console.log('elevators all full')
+          return false
+        }
+        enabled = _.sortBy(enabled, e => e.loadFactor())
+
+        // 先选负载少的
+        let e = enabled[0]
+        let task = e.nextTask()
+        if (task) {
+          e.goToFloor(task.floorNum)
+          task.dispatched = true
+          e.autoIndicate()
+          return
+        }
+        task = e.nearestTask()
+        if (task) {
+          e.goToFloor(task.floorNum)
+          task.dispatched = true
+          e.autoIndicate()
+        }
+      }
+
+      window.floors = floors
       floors.forEach(f => {
+
         f.on('up_button_pressed', () => {
-          dispatchOutTask(elevators, {
-            floorNum: f.floorNum(),
-            direction: 'Up'
-          })
+          let task = {
+            direction: 'up',
+            up: true,
+            floorNum: f.floorNum()
+          }
+          if (_.find(floorTasks, task)) {
+            return
+          }
+          addFloorTask(task)
+          let e = _.find(elevators, e => e.isIdle())
+          if (e) {
+            dispatchFloorTask(elevators)
+          }
         })
         f.on('down_button_pressed', () => {
-          dispatchOutTask(elevators, {
-            floorNum: f.floorNum(),
-            direction: 'Down'
-          })
+          let task = {
+            direction: 'down',
+            up: false,
+            floorNum: f.floorNum()
+          }
+          if (_.find(floorTasks, task)) {
+            return
+          }
+          addFloorTask(task)
+          let e = _.find(elevators, e => e.isIdle())
+          if (e) {
+            dispatchFloorTask(elevators)
+          }
         })
       })
     },
