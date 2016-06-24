@@ -112,8 +112,10 @@
       isStopped() {
         return this.destinationDirection() === 'stopped'
       },
+
+      // 4人电梯人满两男两女时为0.78
       isAvailable() {
-        return this.loadFactor() < 1
+        return this.loadFactor() < 0.78
       },
       isIdle() {
         // console.log(JSON.stringify(this.destinationQueue))
@@ -173,7 +175,8 @@
       let elevatorProto = elevator.__proto__
       extendElevator(elevatorProto)
 
-      elevators.forEach(e => {
+      elevators.forEach((e, i) => {
+        e.sn = i
         e.indicateUp()
 
         e.on('floor_button_pressed', floorNum => {
@@ -222,6 +225,8 @@
         })
 
         e.on('passing_floor', (floorNum, direction) => {
+          console.log('e ' + e.sn + ' available is ' + e.isAvailable())
+          console.log('e ' + e.sn + ' loadFactor is ' + e.loadFactor())
           if (!e.isAvailable()) {
             return
           }
@@ -229,8 +234,8 @@
             return f.floorNum === floorNum && direction === f.direction && !f.dispatched
           })
           if (task) {
-            task.dispatched = true
             e.goToFloor(floorNum, true)
+            task.dispatched = true
           }
         })
 
@@ -250,6 +255,7 @@
           return false
         }
         enabled = _.sortBy(enabled, e => e.loadFactor())
+        // console.log(enabled)
 
         // 先选负载少的
         let e = enabled[0]
@@ -281,8 +287,7 @@
             return
           }
           addFloorTask(task)
-          let e = _.find(elevators, e => e.isIdle())
-          if (e) {
+          if (_.every(elevators, e => e.isIdle())) {
             dispatchFloorTask(elevators)
           }
         })
@@ -296,8 +301,7 @@
             return
           }
           addFloorTask(task)
-          let e = _.find(elevators, e => e.isIdle())
-          if (e) {
+          if (_.every(elevators, e => e.isIdle())) {
             dispatchFloorTask(elevators)
           }
         })
