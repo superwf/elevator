@@ -6,7 +6,7 @@ for [elevator game](http://play.elevatorsaga.com/)
 # start dev
 ```bash
   npm install
-  git submodule update
+  git submodule update --init --recursive
   npm start
 ```
 
