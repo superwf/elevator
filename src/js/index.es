@@ -321,7 +321,7 @@
       floors.forEach(f => {
 
         f.on('up_button_pressed', () => {
-          let task = {
+          const task = {
             direction: 'up',
             up: true,
             floorNum: f.floorNum()
@@ -329,7 +329,7 @@
           if (_.find(floorTasks, task)) {
             return
           }
-          let idleElevator = _.find(elevators, e => {
+          const idleElevator = _.find(elevators, e => {
             return e.currentFloor() === task.floorNum &&
               (e.isIdle() || (e.isAvailable() && (e.isStopped() && e.isUp())))
           })
@@ -343,7 +343,7 @@
           }
         })
         f.on('down_button_pressed', () => {
-          let task = {
+          const task = {
             direction: 'down',
             up: false,
             floorNum: f.floorNum()
@@ -351,7 +351,7 @@
           if (_.find(floorTasks, task)) {
             return
           }
-          let idleElevator = _.find(elevators, e => {
+          const idleElevator = _.find(elevators, e => {
             return e.currentFloor() === task.floorNum &&
               (e.isIdle() || (e.isAvailable() && (e.isStopped() && e.isDown())))
           })
